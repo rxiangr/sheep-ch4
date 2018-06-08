@@ -1,0 +1,74 @@
+#loading count data and voom normalisation
+library(edgeR)
+library(limma)
+NZ.count <- read.csv("NZ_count.csv", 
+              check.names=TRUE, stringsAsFactors=FALSE)
+y <- DGEList(counts=NZ.count[,2:25], genes=NZ.count[,1] )
+y <- calcNormFactors(y)
+keep <- rowSums(cpm(y) > 1) >= 1
+y <- y[keep,]
+y$samples$lib.size <- colSums(y$counts)
+y <- calcNormFactors(y)
+#voom normalisation in voom/limma
+v1 <- voom(y,plot=TRUE)
+voom_matrix <- cbind(v1$genes, v1$E)
+NZ.data <- voom_matrix
+OZ.count <- read.csv("OZ_count.csv", 
+                    check.names=TRUE, stringsAsFactors=FALSE)
+y <- DGEList(OZ.count=NZ.count[,2:63], genes=NZ.OZ.count[,1] )
+y <- calcNormFactors(y)
+keep <- rowSums(cpm(y) > 1) >= 1
+y <- y[keep,]
+y$samples$lib.size <- colSums(y$counts)
+y <- calcNormFactors(y)
+#voom normalisation in voom/limma
+v1 <- voom(y,plot=TRUE)
+voom_matrix <- cbind(v1$genes, v1$E)
+OZ.data <- voom_matrix
+
+#combine oz and nz data and do quantile normalisation
+combined <- (merge(NZ.data, OZ.data, by.x = "genes", by.y = "genes"))
+combined.data <- combined[,-1]
+rownames(combined.data) <- combined[,1]
+combined.matrix <- data.matrix(combined.data,rownames.force= TRUE)
+library(preprocessCore)
+combined.normal <- normalize.quantiles(combined.matrix,copy=TRUE)
+rownames(combined.normal)<-row.names(combined.data)
+colnames(combined.normal)<-colnames(combined.data)
+combined.normal <- data.frame(combined.normal)
+
+#correlation analysis between individual gene expression and phenotype:
+#make a file with 1st row the array/animal number, 2nd row the phenotype and from 3rd row the gene expression
+mydata0=read.csv("gene.pheno.csv")
+mydata1 = setNames(data.frame(t(mydata0[,-1])), mydata0[,1])
+y <- mydata1[,1]
+z <- mydata1[,(2:(nrow(mydata1)-1))]
+cor_matrix_full <- t(cor(as.matrix(y),I(as.matrix(z))))
+write.csv(cor_matrix_full, "whole_gene_pheno_cor.csv"))
+
+#correlation analysis betwween gene expression normalised using muscle gene set expression and MRT (only available in AUS data)
+#load gene cluster files with normalised expression values
+ozdata3 <- read.csv("OZ-defined-gene-pheno1.csv", 
+                                check.names=TRUE, stringsAsFactors=FALSE,row.names=1)
+muscle.exp <- subset(ozdata3, type=="muscle-OZ-all-NZ")
+muscle.mean.exp <- t(as.data.frame(colMeans(muscle.exp[,-1])))
+rownames(muscle.mean.exp)[1] <- "muscle.mean"
+nm.muscle.exp.data <- merge(t(muscle.mean.exp),t(oz.data),by="row.names")  
+nm.muscle.exp.data1 <- nm.muscle.exp.data[,-1]
+rownames(nm.muscle.exp.data1) <- nm.muscle.exp.data[,1]
+nm.muscle.exp.data2 <- nm.muscle.exp.data1[,-1]/nm.muscle.exp.data1[,1]
+nm.muscle.mrt.data <- merge(ozdata3.1[,6:7], log2(nm.muscle.exp.data2),by="row.names")
+nm.muscle.mrt.data1 <- nm.muscle.mrt.data[,-c(1:2)]
+rownames(nm.muscle.mrt.data1) <- nm.muscle.mrt.data[,1]
+temps2 <- as.matrix(apply(nm.muscle.mrt.data1, 2, cor.test,method = "pearson",exact=T, x = nm.muscle.mrt.data1$rumen_MRT))
+temps.p <- as.matrix(sapply(temps2, function(x){as.numeric(x[3])}))
+temps.r <- as.matrix(sapply(temps2, function(x){as.numeric(x[4])}))
+cor.p.matrix.muscle.mrt <- data.frame(cbind(temps2[,-1],temps.r,temps.p))
+colnames(cor.p.matrix.muscle.mrt)[1] <- "nm.mu.cor.mrt"
+colnames(cor.p.matrix.muscle.mrt)[2] <- "nm.mu.p.mrt"
+cor.p.matrix.muscle.mrt1 <- data.frame(lapply(cor.p.matrix.muscle.mrt, as.character))
+rownames(cor.p.matrix.muscle.mrt1) <- rownames(cor.p.matrix.muscle.mrt)
+write.csv(cor.p.matrix.muscle.mrt1, "nm.cor.p.mu.mrt.csv"))
+
+#differential expression between 10 longest and 10 shortest MRT animals:
+
