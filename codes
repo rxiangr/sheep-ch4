@@ -1,4 +1,4 @@
-#loading count data and voom normalisation
+#loading count data and do voom normalisation
 library(edgeR)
 library(limma)
 NZ.count <- read.csv("NZ_count.csv", 
@@ -37,7 +37,23 @@ rownames(combined.normal)<-row.names(combined.data)
 colnames(combined.normal)<-colnames(combined.data)
 combined.normal <- data.frame(combined.normal)
 
-#correlation analysis between individual gene expression and phenotype:
+#run PCIT to identify meaningful correlations:
+library(PCIT)
+cor.mat <- cor(combined.normal[,-1])
+pcit.res <- pcit(cor.mat)
+signif <- idx(pcit.res)
+nonsignif <- idxInvert(nrow(cor.mat), signif)
+cor.mat[nonsignif] <- 0
+adj <- cor.mat
+el <- getEdgeList(adj, rm.zero=TRUE)
+el$sign[el$Weight<0] <- '-'
+el$sign[el$Weight>0] <- '+'
+el$Weight <- abs(el$Weight)
+#save file for cytoscape network analysis
+write.csv(el, file="cor.mat.corr.cytoscape.csv", row.names=FALSE, col.names=TRUE, sep="\t",
+          quote=FALSE)
+
+#correlation analysis between individual gene expression and a phenotype:
 #make a file with 1st row the array/animal number, 2nd row the phenotype and from 3rd row the gene expression
 mydata0=read.csv("gene.pheno.csv")
 mydata1 = setNames(data.frame(t(mydata0[,-1])), mydata0[,1])
@@ -68,7 +84,72 @@ colnames(cor.p.matrix.muscle.mrt)[1] <- "nm.mu.cor.mrt"
 colnames(cor.p.matrix.muscle.mrt)[2] <- "nm.mu.p.mrt"
 cor.p.matrix.muscle.mrt1 <- data.frame(lapply(cor.p.matrix.muscle.mrt, as.character))
 rownames(cor.p.matrix.muscle.mrt1) <- rownames(cor.p.matrix.muscle.mrt)
-write.csv(cor.p.matrix.muscle.mrt1, "nm.cor.p.mu.mrt.csv"))
+write.csv(cor.p.matrix.muscle.mrt1, "nm.cor.p.mu.mrt.csv")
 
-#differential expression between 10 longest and 10 shortest MRT animals:
+#differential expression between 10 longest and 10 shortest MRT animals (only available in AUS data):
+ozdata3.t <- as.data.frame(t(ozdata3[,-1]))
+library(matrixStats)
+#make a ranking column to selection top and bottom animals
+mrt1 <- cbind(rownames(ozdata3.t),as.data.frame(ozdata3.t$rumen_MRT),
+              t(as.data.frame(colRanks(as.matrix(ozdata3.t$rumen_MRT))))) 
+colnames(mrt1) <- c("Id","MRT","rk")
+mrt1$rk <- as.numeric(as.character(mrt1$rk))
+mrt1.selected <- subset(mrt1,rk<11 | rk>52)
+#creating another column with status of MRT
+mrt1.selected$MRT.s <- ifelse(mrt1.selected$rk <=10, "s.MRT", "l.MRT")
+mrt1.select1 <- mrt1.selected[,-1]
+rownames(mrt1.select1) <- mrt1.selected[,1]
+
+#merge with muscle mean exp and etc to build design matrix:
+muscle.exp <- subset(ozdata3, type=="muscle-OZ-all-NZ")
+muscle.mean.exp <- t(as.data.frame(colMeans(muscle.exp[,-1])))
+rownames(muscle.mean.exp)[1] <- "muscle.mean"
+mrt1.select.mu <- merge(mrt1.select1,t(log2(muscle.mean.exp)),by="row.names")
+mrt1.select.mu1 <- mrt1.select.mu[,-1]
+rownames(mrt1.select.mu1) <- mrt1.select.mu[,1]
+#getting oz pheno:
+oz.pheno.all <- read.csv("oz.pheno.csv", 
+                         check.names=TRUE, stringsAsFactors=FALSE,row.names=1)
+mrt1.select.mu.blk <- merge(mrt1.select.mu1,(t(oz.pheno.all))[,1:2],by="row.names")
+#making design table
+mrt.ls.design <- mrt1.select.mu.blk[,-c(2:3)]
+colnames(mrt.ls.design)[1] <- "Sample"
+class(mrt.ls.design$muscle.mean)
+#getting counts data
+oz.all.counts <- read.csv("OZ_count.csv",check.names=T, stringsAsFactors=F,header=1, row.names=1)
+mrt.select.count <- merge(mrt1.select1[,c(1,3)],t(oz.all.counts),by="row.names")
+mrt.select.count1 <- mrt.select.count[,-1]
+rownames(mrt.select.count1) <- mrt.select.count[,1]
+mrt.selelct.gene <- t(mrt.select.count1[,-c(1,2)])
+y.mrt.mu <- DGEList(counts=mrt.selelct.gene, genes=rownames(mrt.selelct.gene))
+y.mrt.mu <- calcNormFactors(y.mrt.mu)
+#filter low count gene
+keep <- rowSums(cpm(y.mrt.mu)>1) >= 1
+y.mrt.mu <- y.mrt.mu[keep,]
+dim(y.mrt.mu)
+head(y.mrt.mu)
+#redo lib size:
+y.mrt.mu$samples$lib.size <- colSums(y.mrt.mu$counts)
+#treat means block
+treat=as.factor(mrt.ls.design$treat)
+mrt=as.factor(mrt.ls.design$MRT.s)
+muscle=as.numeric(mrt.ls.design$muscle.mean)
+mrt <- relevel(mrt, ref="l.MRT")
+design.mrt.mu <- model.matrix(~treat+muscle+mrt)
+design.mrt.mu
+#assign right design names, important
+rownames(design.mrt.mu) <- rownames(mrt1.select.mu1)
+#write.table(design, file="design.csv")
+y.mrt.mu <- estimateGLMCommonDisp(y.mrt.mu, design.mrt.mu, verbose=TRUE)
+y.mrt.mu <- estimateGLMTrendedDisp(y.mrt.mu, design.mrt.mu)
+y.mrt.mu <- estimateGLMTagwiseDisp(y.mrt.mu, design.mrt.mu)
+#fit the model
+fit.mrt.mu <- glmFit(y.mrt.mu,design.mrt.mu)
+#geeting DE for high and low MRT
+mrtDE.mu <- glmLRT(fit.mrt.mu,coef=6)
+topTags(mrtDE.mu)
+tab <- topTags(mrtDE.mu, n=30000)
+write.csv(tab, "MRT_DE_mu.csv")
+
+
 
