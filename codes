@@ -60,7 +60,7 @@ OZ.count <- read.csv("OZ_count.csv",
                     check.names=TRUE, stringsAsFactors=FALSE)
 #merge oz and nz
 oz.nz.count <- merge(NZ.count,OZ.count,by='ID')
-#oz.nz.count1 <- oz.nz.count[,-1]
+oz.nz.count1 <- oz.nz.count[,-1]
 rownames(oz.nz.count1) <- oz.nz.count[,1]
 
 #input roslin data:
