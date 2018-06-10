@@ -5,7 +5,7 @@ NZ.count <- read.csv("NZ_count.csv",
               check.names=TRUE, stringsAsFactors=FALSE)
 y <- DGEList(counts=NZ.count[,2:25], genes=NZ.count[,1] )
 y <- calcNormFactors(y)
-keep <- rowSums(cpm(y) > 1) >= 1
+keep <- rowSums(cpm(y) > 3) >= 24
 y <- y[keep,]
 y$samples$lib.size <- colSums(y$counts)
 y <- calcNormFactors(y)
@@ -17,7 +17,7 @@ OZ.count <- read.csv("OZ_count.csv",
                     check.names=TRUE, stringsAsFactors=FALSE)
 y <- DGEList(OZ.count=NZ.count[,2:63], genes=NZ.OZ.count[,1] )
 y <- calcNormFactors(y)
-keep <- rowSums(cpm(y) > 1) >= 1
+keep <- rowSums(cpm(y) > 3) >= 62
 y <- y[keep,]
 y$samples$lib.size <- colSums(y$counts)
 y <- calcNormFactors(y)
@@ -61,6 +61,19 @@ y <- mydata1[,1]
 z <- mydata1[,(2:(nrow(mydata1)-1))]
 cor_matrix_full <- t(cor(as.matrix(y),I(as.matrix(z))))
 write.csv(cor_matrix_full, "whole_gene_pheno_cor.csv"))
+
+#fisher zscore tests for difference between correlations (generate a value), given a dataframe with columns of variables are to be correlated:
+p.corr.diff <- function(r1,r2,n1,n2){
+  p.corr.diff.value <- substitute(~~italic(aus.v.nz.corr.diff.p)~"="~cp*"",
+                   list(cp = format(2*(1-pnorm(abs(fisher.z(r1= cor(oz.subdata$cell.cycle,
+                                                                    oz.subdata$metabolism.specific),
+                                                            r2=cor(nz.subdata$cell.cycle,
+                                                                   nz.subdata$metabolism.specific),
+                                                            n1=length(oz.subdata$cell.cycle),
+                                                            n2=length(nz.subdata$cell.cycle))))),
+                                    digits = 3)))
+ as.character(as.expression(p.corr.diff.value));
+}
 
 #correlation analysis betwween gene expression normalised using muscle gene set expression and MRT (only available in AUS data)
 #load gene cluster files with normalised expression values
@@ -123,8 +136,8 @@ rownames(mrt.select.count1) <- mrt.select.count[,1]
 mrt.selelct.gene <- t(mrt.select.count1[,-c(1,2)])
 y.mrt.mu <- DGEList(counts=mrt.selelct.gene, genes=rownames(mrt.selelct.gene))
 y.mrt.mu <- calcNormFactors(y.mrt.mu)
-#filter low count gene
-keep <- rowSums(cpm(y.mrt.mu)>1) >= 1
+#filter low count gene for DE
+keep <- rowSums(cpm(y.mrt.mu)>1) >= 20
 y.mrt.mu <- y.mrt.mu[keep,]
 dim(y.mrt.mu)
 head(y.mrt.mu)
