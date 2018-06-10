@@ -53,6 +53,53 @@ el$Weight <- abs(el$Weight)
 write.csv(el, file="cor.mat.corr.cytoscape.csv", row.names=FALSE, col.names=TRUE, sep="\t",
           quote=FALSE)
 
+#use DESeq2 to run PCA analysis of counts
+NZ.count <- read.csv("NZ_count.csv", 
+              check.names=TRUE, stringsAsFactors=FALSE)
+OZ.count <- read.csv("OZ_count.csv", 
+                    check.names=TRUE, stringsAsFactors=FALSE)
+#merge oz and nz
+oz.nz.count <- merge(NZ.count,OZ.count,by='ID')
+#oz.nz.count1 <- oz.nz.count[,-1]
+rownames(oz.nz.count1) <- oz.nz.count[,1]
+
+#input roslin data:
+ros.count <- read.table('all_tissue.txt',header=T)
+colnames(ros.count) <- gsub('ewe_|lamb_|ram_','Roslin.',colnames(ros.count))
+oz.nz.ros.count <- merge(oz.nz.count,ros.count,by='ID')
+oz.nz.ros.count1 <- oz.nz.ros.count[,-1]
+rownames(oz.nz.ros.count1) <- oz.nz.ros.count[,1]
+
+#make a design mat:
+cond <- as.data.frame(colnames(oz.nz.ros.count1))
+cond$locale <- ifelse(grepl('AUS',cond[,1]),'AUS',ifelse(grepl('Roslin',cond[,1]),'Roslin','NZ'))
+colnames(cond)[1] <- 'id' 
+cond$tissue <- ifelse(grepl('AUS',cond[,1]),'rumen',ifelse(grepl('Roslin',cond[,1]),
+                                                           substr(cond[,1],8,nchar(as.character(cond[,1]))),'rumen'))
+cond$tissue <- gsub('.1|.2','',cond$tissue)
+
+#check match
+colnames(oz.nz.ros.count1)==cond[,1]
+cond[,2] <- as.factor(cond[,2])
+cond[,3] <- as.factor(cond[,3])
+#library(DESeq2)
+#library(BiocParallel)
+all.dds <- DESeqDataSetFromMatrix(countData =oz.nz.ros.count1,
+                                       colData = cond, design = ~ locale + tissue)
+all.dds
+#filtering exon data:
+all.dds1 <- all.dds[ rowSums(counts(all.dds)) > 1, ]
+#define gene ref level
+all.dds1$locale <- relevel(all.dds1$locale, ref="Roslin")
+all.dds2 <- estimateSizeFactors(all.dds1)
+gene.se <- SummarizedExperiment(log2(counts(all.dds2, normalized=TRUE) + 1),
+                                colData=colData(all.dds2))
+#generate pca data
+pca.gene.data <- plotPCA(DESeqTransform(gene.se),intgroup=c("locale","tissue"),ntop=500,
+                         returnData=T)
+ggplot(data=pca.gene.data, aes(PC1, PC2, colour =tissue,shape=locale))+ 
+  geom_point(size=3) 
+
 #correlation analysis between individual gene expression and a phenotype:
 #make a file with 1st row the array/animal number, 2nd row the phenotype and from 3rd row the gene expression
 mydata0=read.csv("gene.pheno.csv")
